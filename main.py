@@ -1,30 +1,50 @@
+import json
 import os
 
 import requests
 from cloudevents.http import CloudEvent
+from google.events.cloud import firestore as firestoredata
+from google.protobuf.json_format import MessageToDict
 import functions_framework
 
 SLACK_FUNDRAISING_WEBHOOK = os.environ["SLACK_FUNDRAISING_WEBHOOK"]
 SLACK_DEPLOYMENT_WEBHOOK = os.environ["SLACK_DEPLOYMENT_WEBHOOK"]
 
 
-def _get_field_value(field):
-    """Extract the value from a Firestore document field."""
-    for type_key in ("stringValue", "integerValue", "doubleValue", "booleanValue", "timestampValue"):
-        if type_key in field:
-            return field[type_key]
-    if "mapValue" in field:
-        return {k: _get_field_value(v) for k, v in field["mapValue"].get("fields", {}).items()}
-    if "arrayValue" in field:
-        return [_get_field_value(v) for v in field["arrayValue"].get("values", [])]
-    if "nullValue" in field:
-        return None
-    return str(field)
+def _parse_event(event: CloudEvent) -> dict:
+    """Parse a Firestore CloudEvent into a plain dict of field values."""
+    firestore_payload = firestoredata.DocumentEventData()
+    firestore_payload._pb.MergeFromString(event.data)
+    doc_dict = MessageToDict(firestore_payload._pb)
+    fields = doc_dict.get("value", {}).get("fields", {})
+    return _flatten_fields(fields)
 
 
-def _parse_fields(raw_fields):
-    """Parse Firestore raw fields into a plain dict."""
-    return {k: _get_field_value(v) for k, v in raw_fields.items()}
+def _flatten_fields(fields: dict) -> dict:
+    """Convert Firestore REST-style typed fields to plain values."""
+    result = {}
+    for key, val in fields.items():
+        if "stringValue" in val:
+            result[key] = val["stringValue"]
+        elif "integerValue" in val:
+            result[key] = int(val["integerValue"])
+        elif "doubleValue" in val:
+            result[key] = val["doubleValue"]
+        elif "booleanValue" in val:
+            result[key] = val["booleanValue"]
+        elif "timestampValue" in val:
+            result[key] = val["timestampValue"]
+        elif "nullValue" in val:
+            result[key] = None
+        elif "mapValue" in val:
+            result[key] = _flatten_fields(val["mapValue"].get("fields", {}))
+        elif "arrayValue" in val:
+            result[key] = [
+                _flatten_fields({"_": v}).get("_") for v in val["arrayValue"].get("values", [])
+            ]
+        else:
+            result[key] = str(val)
+    return result
 
 
 def _post_to_slack(webhook_url, blocks):
@@ -38,8 +58,7 @@ def _post_to_slack(webhook_url, blocks):
 @functions_framework.cloud_event
 def on_investor_lead(event: CloudEvent):
     """Triggered when a new document is created in investor_leads."""
-    raw_fields = event.data["value"].get("fields", {})
-    data = _parse_fields(raw_fields)
+    data = _parse_event(event)
 
     first = data.get("first_name", "")
     last = data.get("last_name", "")
@@ -53,7 +72,7 @@ def on_investor_lead(event: CloudEvent):
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": "🚀 New Investor Lead"},
+            "text": {"type": "plain_text", "text": "New Investor Lead"},
         },
         {
             "type": "section",
@@ -82,8 +101,7 @@ def on_investor_lead(event: CloudEvent):
 @functions_framework.cloud_event
 def on_customer(event: CloudEvent):
     """Triggered when a new document is created in customers."""
-    raw_fields = event.data["value"].get("fields", {})
-    data = _parse_fields(raw_fields)
+    data = _parse_event(event)
 
     name = data.get("name", "N/A")
     email = data.get("email", "N/A")
@@ -93,7 +111,7 @@ def on_customer(event: CloudEvent):
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": "👤 New Customer Signup"},
+            "text": {"type": "plain_text", "text": "New Customer Signup"},
         },
         {
             "type": "section",
@@ -114,8 +132,7 @@ def on_customer(event: CloudEvent):
 @functions_framework.cloud_event
 def on_contact_submission(event: CloudEvent):
     """Triggered when a new document is created in contact_submissions."""
-    raw_fields = event.data["value"].get("fields", {})
-    data = _parse_fields(raw_fields)
+    data = _parse_event(event)
 
     name = data.get("name", "N/A")
     email = data.get("email", "N/A")
@@ -124,7 +141,7 @@ def on_contact_submission(event: CloudEvent):
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": "📩 New Contact Submission"},
+            "text": {"type": "plain_text", "text": "New Contact Submission"},
         },
         {
             "type": "section",

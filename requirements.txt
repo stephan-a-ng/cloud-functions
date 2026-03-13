@@ -1,3 +1,5 @@
 functions-framework==3.*
 google-cloud-firestore==2.*
+google-events==0.*
+protobuf>=4.0
 requests==2.*
