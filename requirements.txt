@@ -3,3 +3,5 @@ google-cloud-firestore==2.*
 google-events==0.*
 protobuf>=4.0
 requests==2.*
+google-auth==2.*
+google-api-python-client==2.*
