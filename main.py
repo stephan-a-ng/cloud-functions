@@ -204,7 +204,12 @@ def on_waitlist_submission(event: CloudEvent):
     parking_type = data.get("parking_type", "")
     timeline = data.get("timeline", "")
 
-    title = "New Skip the Line Submission" if form_type == "qualification" else "New Waitlist Signup"
+    if form_type == "reach-3.0":
+        title = "New REACH 3.0 Lead"
+    elif form_type == "qualification":
+        title = "New Skip the Line Submission"
+    else:
+        title = "New Waitlist Signup"
 
     fields = [
         {"type": "mrkdwn", "text": f"*Name:*\n{first} {last}"},
@@ -220,6 +225,16 @@ def on_waitlist_submission(event: CloudEvent):
         fields.append({"type": "mrkdwn", "text": f"*Parking:*\n{parking_type}"})
     if timeline:
         fields.append({"type": "mrkdwn", "text": f"*Timeline:*\n{timeline}"})
+    if form_type == "reach-3.0":
+        verdict = data.get("qualification_outcome") or ""
+        unit_count = data.get("unit_count") or ""
+        utility = data.get("utility_provider") or ""
+        if verdict:
+            fields.append({"type": "mrkdwn", "text": f"*Verdict:*\n{verdict}"})
+        if unit_count:
+            fields.append({"type": "mrkdwn", "text": f"*Units:*\n{unit_count}"})
+        if utility:
+            fields.append({"type": "mrkdwn", "text": f"*Utility:*\n{utility}"})
 
     blocks = [
         {"type": "header", "text": {"type": "plain_text", "text": title}},
@@ -249,7 +264,7 @@ def _forward_waitlist_to_crm(event: CloudEvent, *, crm_url: str, label: str):
     subject = event.get("subject") or ""
     doc_id = subject.rsplit("/", 1)[-1] if subject else ""
 
-    # Build the CRM payload — snake_case keys, matching WaitlistIntakePayload.
+    # Build the CRM payload - snake_case keys, matching WaitlistIntakePayload.
     payload = {
         "firestore_doc_id": doc_id,
         "submitted_at": data.get("submitted_at"),
@@ -275,6 +290,16 @@ def _forward_waitlist_to_crm(event: CloudEvent, *, crm_url: str, label: str):
         "newsletter": data.get("newsletter"),
         "for_myself": data.get("for_myself"),
         "comment": data.get("comment") or "",
+        # REACH 3.0 attestations + verdict (only set when the user
+        # came in through /reach-3.0). Empty defaults are safe; the
+        # CRM intake schema treats them as optional.
+        "unit_count": data.get("unit_count") or "",
+        "tenancy": data.get("tenancy") or "",
+        "utility_provider": data.get("utility_provider") or "",
+        "dac_attest": data.get("dac_attest") or "",
+        "qualification_outcome": data.get("qualification_outcome") or "",
+        "ineligibility_reasons": data.get("ineligibility_reasons") or [],
+        "existing_deal_id": data.get("existing_deal_id") or "",
     }
 
     if not payload["email"] or not payload["firestore_doc_id"]:
